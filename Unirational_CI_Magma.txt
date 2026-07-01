@@ -1,0 +1,1753 @@
+// Sextic unirational parametrization via the osculating-tower construction.
+// Stable moving-x0 version.
+//
+// The script constructs a random sparse sextic F in P^133 over GF(1009)
+// inside a fixed first osculating chart L0=P^4 subset M0=P^6, evaluates
+// many points produced by the residual tower parametrization, checks F(P)=0,
+// and tests the linear span of the generated points.
+//
+// The residual tower is
+//
+//     (6) -> (2,3,4) -> (2,2,2,3) -> (2,2,2).
+//
+// The construction is not a dense random sextic in all monomials of P^133;
+// it is random inside the osculating chart needed by the proof.
+
+SetSeed(1);
+
+p := 1009;
+K := GF(p);
+
+n := 133;
+N := n + 1;
+
+R := PolynomialRing(K, N);
+X := [R.i : i in [1..N]];
+
+V0 := VectorSpace(K, N);
+
+// L0=<e1,...,e5>, M0=<e1,...,e7>.
+L0 := [V0.i : i in [1..5]];
+M0 := [V0.i : i in [1..7]];
+
+// ------------------------------------------------------------
+// Random form utilities
+// ------------------------------------------------------------
+
+function RandomComposition(d, N)
+    a := [0 : i in [1..N]];
+    for j in [1..d] do
+        i := Random(1, N);
+        a[i] +:= 1;
+    end for;
+    return a;
+end function;
+
+function MonomialFromSelectedExponent(R, vars, e)
+    m := R!1;
+    for i in [1..#e] do
+        if e[i] ne 0 then
+            m *:= vars[i]^e[i];
+        end if;
+    end for;
+    return m;
+end function;
+
+function RandomFormInGivenVars(R, vars, deg, NumberOfTerms)
+    F := R!0;
+    used := {};
+    while #used lt NumberOfTerms do
+        e := RandomComposition(deg, #vars);
+        key := Sprint(e);
+        if not key in used then
+            Include(~used, key);
+            repeat
+                c := Random(BaseRing(R));
+            until c ne 0;
+            m := R!1;
+            for i in [1..#vars] do
+                if e[i] ne 0 then
+                    m *:= vars[i]^e[i];
+                end if;
+            end for;
+            F +:= c*m;
+        end if;
+    end while;
+    return F;
+end function;
+
+function RandomFormWithOutsideVariable(R, varsAll, varsOut, deg, NumberOfTerms)
+    F := R!0;
+    used := {};
+    while #used lt NumberOfTerms do
+        e := RandomComposition(deg, #varsAll);
+
+        hasOut := false;
+        for i in [1..#varsAll] do
+            if e[i] ne 0 and varsAll[i] in varsOut then
+                hasOut := true;
+            end if;
+        end for;
+
+        if hasOut then
+            key := Sprint(e);
+            if not key in used then
+                Include(~used, key);
+                repeat
+                    c := Random(BaseRing(R));
+                until c ne 0;
+                F +:= c*MonomialFromSelectedExponent(R, varsAll, e);
+            end if;
+        end if;
+    end while;
+    return F;
+end function;
+
+function RandomHighOsculatingNoise(R, X, NumberOfTerms)
+    // Random sextic terms preserving F|_M0 in I_L0^5.
+    // A monomial is allowed if either it uses a variable outside M0,
+    // or, when supported on x1,...,x7, it has degree at least 5 in x6,x7.
+    N := #X;
+    F := R!0;
+    used := {};
+    while #used lt NumberOfTerms do
+        e := RandomComposition(6, N);
+        outside := &+[e[i] : i in [8..N]];
+
+        allowed := false;
+        if outside gt 0 then
+            allowed := true;
+        elif e[6] + e[7] ge 5 then
+            allowed := true;
+        end if;
+
+        if allowed then
+            key := Sprint(e);
+            if not key in used then
+                Include(~used, key);
+                repeat
+                    c := Random(BaseRing(R));
+                until c ne 0;
+                F +:= c*MonomialFromSelectedExponent(R, X, e);
+            end if;
+        end if;
+    end while;
+    return F;
+end function;
+
+// ------------------------------------------------------------
+// Construct the sextic in the moving osculating chart
+// ------------------------------------------------------------
+
+// Variables used to force the first residual.
+// We use outside variables x9,...,x30 so that the forced residual forms
+// vanish on the image of M0/<x0>.
+varsAll := [X[i] : i in [2..7]] cat [X[i] : i in [9..30]];
+varsOut := [X[i] : i in [9..30]];
+
+Q2 := RandomFormWithOutsideVariable(R, varsAll, varsOut, 2, 80);
+Q3 := RandomFormWithOutsideVariable(R, varsAll, varsOut, 3, 120);
+Q4 := RandomFormWithOutsideVariable(R, varsAll, varsOut, 4, 160);
+
+// Moving tangent term along L0.
+// This prevents all produced points from lying in a fixed tangent hyperplane.
+Lvars := [X[i] : i in [1..5]];
+
+TangentTerms := R!0;
+for j in [8..30] do
+    TangentTerms +:= X[j]*RandomFormInGivenVars(R, Lvars, 5, 20);
+end for;
+
+// Explicit nonzero tangent coefficient.
+TangentTerms +:= X[8]*X[1]^5;
+
+// Build F.
+// The terms with outside variables vanish on M0. The noise preserves
+// F|_M0 in I_L0^5(6).
+NoiseTerms := 1000;
+
+F := TangentTerms
+     + X[1]^4*Q2 + X[1]^3*Q3 + X[1]^2*Q4
+     + RandomHighOsculatingNoise(R, X, NoiseTerms);
+
+print "Sextic constructed.";
+print "Checking F|_M0 in I_L0^5...";
+
+okosc := true;
+mons := Monomials(F);
+for a in [1..#mons] do
+    e := Exponents(mons[a]);
+    outside := &+[e[i] : i in [8..N]];
+    if outside eq 0 and e[6] + e[7] lt 5 then
+        okosc := false;
+    end if;
+end for;
+
+print "Osculation condition:", okosc;
+assert okosc;
+
+// ------------------------------------------------------------
+// Linear algebra helpers
+// ------------------------------------------------------------
+
+function RandomVectorInSpan(B)
+    V := Parent(B[1]);
+    K := BaseRing(V);
+    repeat
+        v := V!0;
+        for b in B do
+            v +:= Random(K)*b;
+        end for;
+    until v ne V!0;
+    return v;
+end function;
+
+function IsSmoothPoint(F, x)
+    N := Dimension(Parent(x));
+    for i in [1..N] do
+        if Evaluate(Derivative(F, i), Eltseq(x)) ne 0 then
+            return true;
+        end if;
+    end for;
+    return false;
+end function;
+
+function RandomSmoothPointInSpan(F, B)
+    repeat
+        x := RandomVectorInSpan(B);
+    until IsSmoothPoint(F, x);
+    return x;
+end function;
+
+function IndependentBasisModuloVector(B, x)
+    V := Parent(x);
+    S := sub<V | [x]>;
+    C := [];
+    for b in B do
+        if Dimension(S + sub<V | [b]>) gt Dimension(S) then
+            Append(~C, b);
+            S := S + sub<V | [b]>;
+        end if;
+    end for;
+    return C;
+end function;
+
+function CoordinatesInGivenRows(B, w)
+    K := BaseRing(Parent(w));
+    A := Matrix(K, [Eltseq(b) : b in B]);
+    c := Solution(A, Vector(K, Eltseq(w)));
+    return Eltseq(c);
+end function;
+
+function QuotientImageBasis(Mbasis, x, Tbasis)
+    V := Parent(x);
+    K := BaseRing(V);
+    C := IndependentBasisModuloVector(Mbasis, x);
+    BigBasis := [x] cat Tbasis;
+    W := VectorSpace(K, #Tbasis);
+    out := [];
+    for w in C do
+        cc := CoordinatesInGivenRows(BigBasis, w);
+        Append(~out, W![cc[i] : i in [2..#cc]]);
+    end for;
+    return out;
+end function;
+
+function LinearCombination(B, z)
+    V := Parent(B[1]);
+    v := V!0;
+    for i in [1..#B] do
+        v +:= z[i]*B[i];
+    end for;
+    return v;
+end function;
+
+function DistinguishedIndex(degs)
+    D := Maximum(degs);
+    for i in [1..#degs] do
+        if degs[i] eq D then
+            return i;
+        end if;
+    end for;
+    return 0;
+end function;
+
+function RandomOutsideSpan(V, B)
+    S := sub<V | B>;
+    repeat
+        w := Random(V);
+    until not w in S;
+    return w;
+end function;
+
+function SatisfiesEquations(eqs, z)
+    if #eqs eq 0 then
+        return true;
+    end if;
+    return &and[Evaluate(H, Eltseq(z)) eq 0 : H in eqs];
+end function;
+
+function NormalizeProjectiveVector(v)
+    V := Parent(v);
+    for i in [1..Dimension(V)] do
+        if v[i] ne 0 then
+            return (v[i])^(-1)*v;
+        end if;
+    end for;
+    return v;
+end function;
+
+// ------------------------------------------------------------
+// Taylor residual system
+// ------------------------------------------------------------
+
+function TangentQuotientBasis(eqs, x)
+    R := Parent(eqs[1]);
+    K := BaseRing(R);
+    V := Parent(x);
+    N := Dimension(V);
+
+    rows := [];
+    for H in eqs do
+        row := [];
+        for i in [1..N] do
+            Append(~row, Evaluate(Derivative(H, i), Eltseq(x)));
+        end for;
+        Append(~rows, row);
+    end for;
+
+    A := Matrix(K, rows);
+
+    // Magma's Nullspace gives the left kernel. We need column vectors v
+    // satisfying A*v=0, hence the left kernel of Transpose(A).
+    Ker := Nullspace(Transpose(A));
+
+    S := sub<V | [x]>;
+    Tbasis := [];
+    for b in Basis(Ker) do
+        w := V!Eltseq(b);
+        if Dimension(S + sub<V | [w]>) gt Dimension(S) then
+            Append(~Tbasis, w);
+            S := S + sub<V | [w]>;
+        end if;
+    end for;
+
+    return Tbasis;
+end function;
+
+function ResidualSystem(eqs, degs, dist, x, Mbasis)
+    Rold := Parent(eqs[1]);
+    K := BaseRing(Rold);
+    Vold := Parent(x);
+    Nold := Dimension(Vold);
+
+    Tbasis := TangentQuotientBasis(eqs, x);
+    m := #Tbasis;
+
+    S := PolynomialRing(K, m);
+    Z := [S.i : i in [1..m]];
+    T<t> := PolynomialRing(S);
+
+    subs := [];
+    for i in [1..Nold] do
+        lin := S!0;
+        for j in [1..m] do
+            lin +:= (K!(Tbasis[j][i]))*Z[j];
+        end for;
+        Append(~subs, (T!(K!(x[i]))) + t*(T!lin));
+    end for;
+
+    phi := hom<Rold -> T | subs>;
+
+    neweqs := [];
+    newdegs := [];
+
+    for a in [1..#eqs] do
+        H := eqs[a];
+        e := degs[a];
+        G := phi(H);
+
+        if a eq dist then
+            last := e - 2;
+        else
+            last := e;
+        end if;
+
+        if last ge 2 then
+            for j in [2..last] do
+                Append(~neweqs, Coefficient(G, j));
+                Append(~newdegs, j);
+            end for;
+        end if;
+    end for;
+
+    newL := QuotientImageBasis(Mbasis, x, Tbasis);
+
+    return neweqs, newdegs, Tbasis, newL;
+end function;
+
+// ------------------------------------------------------------
+// Residual point on a high contact line
+// ------------------------------------------------------------
+
+function ResidualPointOnLine(H, D, x, v)
+    K := BaseRing(Parent(x));
+    P<t> := PolynomialRing(K);
+
+    subs := [];
+    for i in [1..Dimension(Parent(x))] do
+        Append(~subs, (P!(x[i])) + t*(P!(v[i])));
+    end for;
+
+    G := Evaluate(H, subs);
+    a := Coefficient(G, D-1);
+    b := Coefficient(G, D);
+
+    if b eq 0 then
+        return false, Parent(x)!0;
+    end if;
+
+    return true, x - (a/b)*v;
+end function;
+
+function LiftResidualPoint(eqs, degs, dist, x, Tbasis, z)
+    v := LinearCombination(Tbasis, z);
+    return ResidualPointOnLine(eqs[dist], degs[dist], x, v);
+end function;
+
+// ------------------------------------------------------------
+// Rational parametrization of the quadratic endpoint
+// ------------------------------------------------------------
+
+function QuadricEndpointPoint(Qs, LambdaBasis, target)
+    K := BaseRing(Parent(target));
+    V := Parent(target);
+    m := Dimension(V);
+
+    P := PolynomialRing(K, 3);
+    A := [P.i : i in [1..3]];
+
+    vv := [P!(target[i]) : i in [1..m]];
+    for j in [1..3] do
+        for i in [1..m] do
+            vv[i] +:= (P!(LambdaBasis[j][i]))*A[j];
+        end for;
+    end for;
+
+    rows := [];
+    rhs := [];
+
+    for Q in Qs do
+        G := Evaluate(Q, vv);
+        row := [K!MonomialCoefficient(G, A[j]) : j in [1..3]];
+        cst := K!MonomialCoefficient(G, P!1);
+        Append(~rows, row);
+        Append(~rhs, -cst);
+    end for;
+
+    M := Matrix(K, rows);
+
+    if Determinant(M) eq 0 then
+        return false, V!0;
+    end if;
+
+    sol := Eltseq(Solution(Transpose(M), Vector(K, rhs)));
+
+    out := target;
+    for j in [1..3] do
+        out +:= sol[j]*LambdaBasis[j];
+    end for;
+
+    return true, out;
+end function;
+
+// ------------------------------------------------------------
+// One evaluation of the unirational parametrization
+// ------------------------------------------------------------
+
+function ParametrizeOnePointOnSextic(F, L0, M0)
+    eqs0 := [F];
+    degs0 := [6];
+    dist0 := 1;
+
+    // Moving contact point in L0.
+    x0 := RandomSmoothPointInSpan(F, L0);
+
+    // Level 0: (6) -> (2,3,4).
+    eqs1, degs1, TB0, L1 := ResidualSystem(eqs0, degs0, dist0, x0, M0);
+
+    if #degs1 ne 3 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    dist1 := DistinguishedIndex(degs1);
+    if dist1 eq 0 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    x1 := RandomVectorInSpan(L1);
+    M1 := L1;
+
+    // Level 1: (2,3,4) -> (2,2,2,3).
+    eqs2, degs2, TB1, L2 := ResidualSystem(eqs1, degs1, dist1, x1, M1);
+
+    if #degs2 ne 4 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    dist2 := DistinguishedIndex(degs2);
+    if dist2 eq 0 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    x2 := RandomVectorInSpan(L2);
+    M2 := L2;
+
+    // Level 2: (2,2,2,3) -> (2,2,2).
+    eqs3, degs3, TB2, L3 := ResidualSystem(eqs2, degs2, dist2, x2, M2);
+
+    if #eqs3 ne 3 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    if not &and[d eq 2 : d in degs3] then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    if #L3 lt 3 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    // Quadratic endpoint: intersection of three quadrics containing P^3=L3.
+    // Project from Lambda=P^2 inside L3.
+    Lambda := [L3[i] : i in [1..3]];
+    V3 := Parent(L3[1]);
+
+    good := false;
+    z3 := V3!0;
+
+    for attempt in [1..500] do
+        target := RandomOutsideSpan(V3, L3);
+        good, z3 := QuadricEndpointPoint(eqs3, Lambda, target);
+        if good and SatisfiesEquations(eqs3, z3) then
+            break;
+        else
+            good := false;
+        end if;
+    end for;
+
+    if not good then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    // Lift level 2 -> level 1 residual member.
+    good, z2 := LiftResidualPoint(eqs2, degs2, dist2, x2, TB2, z3);
+    if not good or not SatisfiesEquations(eqs2, z2) then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    // Lift level 1 -> first residual member.
+    good, z1 := LiftResidualPoint(eqs1, degs1, dist1, x1, TB1, z2);
+    if not good or not SatisfiesEquations(eqs1, z1) then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    // Lift level 0 -> point of the sextic.
+    good, P0 := LiftResidualPoint(eqs0, degs0, dist0, x0, TB0, z1);
+    if not good then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    if Evaluate(F, Eltseq(P0)) ne 0 then
+        return false, Parent(L0[1])!0;
+    end if;
+
+    return true, P0;
+end function;
+
+// ------------------------------------------------------------
+// Generate many parametrized points and test their span
+// ------------------------------------------------------------
+
+TargetRank := N;                  // vector-space rank 134, that is P^133.
+MaxAttempts := 3000;
+
+Pts := [];
+successes := 0;
+attempts := 0;
+currentRank := 0;
+
+print "Generating many points from the unirational parametrization...";
+print "Target vector-space rank:", TargetRank;
+
+while attempts lt MaxAttempts and currentRank lt TargetRank do
+    attempts +:= 1;
+
+    success, P0 := ParametrizeOnePointOnSextic(F, L0, M0);
+
+    if success then
+        P0 := NormalizeProjectiveVector(P0);
+
+        val := Evaluate(F, Eltseq(P0));
+        assert val eq 0;
+
+        Append(~Pts, P0);
+        successes +:= 1;
+
+        Mpts := Matrix(K, [Eltseq(P) : P in Pts]);
+        currentRank := Rank(Mpts);
+
+        if successes mod 10 eq 0 or currentRank eq TargetRank then
+            print "Attempts:", attempts,
+                  " successes:", successes,
+                  " current span rank:", currentRank;
+        end if;
+    end if;
+end while;
+
+print "----------------------------------------";
+print "Total attempts:", attempts;
+print "Successful parametrized points:", successes;
+print "Final vector-space rank:", currentRank;
+print "Final projective linear span dimension:", currentRank - 1;
+
+if currentRank eq TargetRank then
+    print "Success: the generated points span the whole ambient P^133.";
+else
+    print "The generated points did not yet span P^133.";
+    print "Increase MaxAttempts, increase the field size, or reduce NoiseTerms.";
+end if;
+
+NumberToPrint := Minimum(5, #Pts);
+
+print "First", NumberToPrint, "parametrized points:";
+for i in [1..NumberToPrint] do
+    print "Point", i, ":";
+    print Eltseq(Pts[i]);
+end for;
+
+
+
+
+
+// ============================================================
+// Osculating-tower bounds for unirationality
+// ============================================================
+//
+// Input:
+//   n    = ambient projective dimension
+//   c    = number of equations
+//   degs = [d1,...,dc]
+//
+// Output:
+//   the bound produced by the osculating-tower method, and whether
+//   the given n satisfies it.
+//
+// Default MaxExtraR=0 and MaxExtraM=0 reproduces the bound used in
+// the paper, with the canonical choices
+//
+//      r = s(d)
+//      m = max{r, s(T(d))+1}.
+//
+// Increasing MaxExtraR and MaxExtraM searches for better choices of
+// contact dimensions and osculating extensions near the canonical ones.
+//
+// Examples:
+//   OsculatingTowerBound(133, 1, [6], 0, 0, true);
+//   OsculatingTowerBound(2069, 1, [7], 0, 0, true);
+//   OsculatingTowerBound(81800, 1, [8], 0, 0, true);
+//
+// ============================================================
+
+function SortedSequence(S)
+    T := S;
+    Sort(~T);
+    return T;
+end function;
+
+function CeilDiv(a,b)
+    if b le 0 then
+        error "CeilDiv called with nonpositive denominator";
+    end if;
+    return (a + b - 1) div b;
+end function;
+
+function SymDim(b,j)
+    // dim Sym^j(k^b). This is binomial(b+j-1,j), with the
+    // convention Sym^0(0)=k and Sym^j(0)=0 for j>0.
+    if b eq 0 then
+        if j eq 0 then
+            return 1;
+        else
+            return 0;
+        end if;
+    end if;
+    return Binomial(b+j-1,j);
+end function;
+
+function IsAllQuadrics(degs)
+    if #degs eq 0 then
+        return false;
+    end if;
+    return &and[d eq 2 : d in degs];
+end function;
+
+function SValue(degs)
+    if #degs eq 0 then
+        return -1;
+    end if;
+    return (&+[d-1 : d in degs]) - 1;
+end function;
+
+function TransformT(degs)
+    // Distinguished equation is the last one after sorting, hence one
+    // equation of maximal degree.
+    degs := SortedSequence(degs);
+
+    if #degs eq 0 then
+        return [];
+    end if;
+
+    c := #degs;
+    D := degs[c];
+
+    out := [];
+
+    // Non-distinguished equations contribute 2,...,d_i.
+    for i in [1..c-1] do
+        if degs[i] ge 2 then
+            for e in [2..degs[i]] do
+                Append(~out, e);
+            end for;
+        end if;
+    end for;
+
+    // Distinguished equation contributes 2,...,D-2.
+    if D-2 ge 2 then
+        for e in [2..D-2] do
+            Append(~out, e);
+        end for;
+    end if;
+
+    Sort(~out);
+    return out;
+end function;
+
+function InitialQuadraticBound(q)
+    // Starting directly with q quadrics is different from the internal
+    // quadratic endpoint.  We first need the general intersection of
+    // q quadrics to contain a P^{q-1}.  The incidence count gives
+    //
+    //   n >= q-1 + binomial(q+1,2).
+    //
+    // For q=1 we also impose n>=2, so that the quadric is a positive
+    // dimensional rational quadric over an algebraically closed field.
+    if q eq 1 then
+        return 2;
+    end if;
+    return (q-1) + Binomial(q+1,2);
+end function;
+
+function KInitial(degs, r, m)
+    // Number of linear conditions for the first osculating datum.
+    // Here L is not already known to be contained in X, so j starts at 0.
+    degs := SortedSequence(degs);
+    c := #degs;
+    D := degs[c];
+    b := m-r;
+
+    K := 0;
+
+    // Non-distinguished equations vanish on M.
+    for i in [1..c-1] do
+        d := degs[i];
+        for j in [0..d] do
+            K +:= Binomial(r+d-j,r)*SymDim(b,j);
+        end for;
+    end for;
+
+    // Distinguished equation has order D-1 along L on M.
+    if D-2 ge 0 then
+        for j in [0..D-2] do
+            K +:= Binomial(r+D-j,r)*SymDim(b,j);
+        end for;
+    end if;
+
+    return K;
+end function;
+
+function KInternal(degs, r, m)
+    // Number of linear conditions for an internal osculating datum.
+    // Here L is already contained in the current residual member, so
+    // the normal degree j=0 has already been killed and j starts at 1.
+    degs := SortedSequence(degs);
+    c := #degs;
+    D := degs[c];
+    b := m-r;
+
+    K := 0;
+
+    // Non-distinguished equations vanish on M modulo the already
+    // imposed condition on L.
+    for i in [1..c-1] do
+        d := degs[i];
+        if d ge 1 then
+            for j in [1..d] do
+                K +:= Binomial(r+d-j,r)*SymDim(b,j);
+            end for;
+        end if;
+    end for;
+
+    // Distinguished equation has order D-1 along L, again modulo j=0.
+    if D-2 ge 1 then
+        for j in [1..D-2] do
+            K +:= Binomial(r+D-j,r)*SymDim(b,j);
+        end for;
+    end if;
+
+    return K;
+end function;
+
+function InternalBound(degs, r, MaxExtraM)
+    // Bound for a residual complete intersection of multidegree degs
+    // which already contains P^r.
+
+    degs := SortedSequence(degs);
+
+    // Empty multidegree means projective space.
+    if #degs eq 0 then
+        return r+1;
+    end if;
+
+    // Quadratic endpoint.
+    if IsAllQuadrics(degs) then
+        q := #degs;
+        if r lt q-1 then
+            error "Quadratic endpoint reached with too small a linear space";
+        end if;
+        return r+1;
+    end if;
+
+    c := #degs;
+    Tdegs := TransformT(degs);
+
+    sT := SValue(Tdegs);
+    mmin := Maximum(r, sT+1);
+
+    best := 0;
+    first := true;
+
+    for m in [mmin..mmin+MaxExtraM] do
+        b := m-r;
+
+        // Recursive part.  After taking a point in L, the next contained
+        // linear space has dimension m-1, and the residual lives in a
+        // projective space whose ambient dimension drops by c+1.
+        rec := InternalBound(Tdegs, m-1, MaxExtraM) + c + 1;
+
+        if b eq 0 then
+            cand := rec;
+        else
+            K := KInternal(degs, r, m);
+            I := m + CeilDiv(K,b);
+            cand := Maximum(I, rec);
+        end if;
+
+        if first or cand lt best then
+            best := cand;
+            first := false;
+        end if;
+    end for;
+
+    return best;
+end function;
+
+function InitialBound(degs, MaxExtraR, MaxExtraM)
+    // Bound for a general complete intersection of multidegree degs.
+
+    degs := SortedSequence(degs);
+
+    if #degs eq 0 then
+        return 0;
+    end if;
+
+    // Purely quadratic starting case.
+    if IsAllQuadrics(degs) then
+        return InitialQuadraticBound(#degs);
+    end if;
+
+    c := #degs;
+    Tdegs := TransformT(degs);
+
+    s0 := SValue(degs);
+    sT := SValue(Tdegs);
+
+    best := 0;
+    first := true;
+
+    for r in [s0..s0+MaxExtraR] do
+        mmin := Maximum(r, sT+1);
+
+        for m in [mmin..mmin+MaxExtraM] do
+            K0 := KInitial(degs, r, m);
+
+            // First incidence threshold.  The denominator is m+1, the
+            // number of parameters gained from one new ambient coordinate
+            // in the choice of the osculating extension M.
+            H0 := m + CeilDiv(K0, m+1);
+
+            // The first residual lives in P^{n-c-1}, hence the +c+1.
+            rec := InternalBound(Tdegs, m-1, MaxExtraM) + c + 1;
+
+            cand := Maximum(H0, rec);
+
+            if first or cand lt best then
+                best := cand;
+                first := false;
+            end if;
+        end for;
+    end for;
+
+    return best;
+end function;
+
+procedure PrintTransformChain(degs)
+    degs := SortedSequence(degs);
+    print "Residual multidegree chain:";
+    step := 0;
+    print step, ":", degs;
+
+    while #degs gt 0 and not IsAllQuadrics(degs) do
+        degs := TransformT(degs);
+        step +:= 1;
+        print step, ":", degs;
+    end while;
+end procedure;
+
+procedure OsculatingTowerBound(n, c, degs, MaxExtraR, MaxExtraM, Verbose)
+    if #degs ne c then
+        error "The length of degs is not c";
+    end if;
+
+    degs := SortedSequence(degs);
+
+    if &or[d lt 2 : d in degs] then
+        error "All degrees must be at least 2";
+    end if;
+
+    B := InitialBound(degs, MaxExtraR, MaxExtraM);
+
+    print "----------------------------------------";
+    print "Input ambient dimension n =", n;
+    print "Input multidegree =", degs;
+    print "Number of equations c =", c;
+    print "MaxExtraR =", MaxExtraR;
+    print "MaxExtraM =", MaxExtraM;
+    print "Osculating-tower bound =", B;
+
+    if n ge B then
+        print "Conclusion: n >= bound. The method applies.";
+    else
+        print "Conclusion: n < bound. The method does not certify unirationality.";
+        print "Defect bound-n =", B-n;
+    end if;
+
+    if Verbose then
+        PrintTransformChain(degs);
+    end if;
+
+    print "----------------------------------------";
+end procedure;
+
+// ============================================================
+// Examples
+// ============================================================
+
+// Paper values for hypersurfaces.
+OsculatingTowerBound(133,   1, [6], 0, 0, true);
+OsculatingTowerBound(2069,  1, [7], 0, 0, true);
+OsculatingTowerBound(81800, 1, [8], 0, 0, true);
+
+// Example for a complete intersection.
+OsculatingTowerBound(100, 2, [2,4], 0, 0, true);
+
+
+
+
+
+
+
+
+// ============================================================
+// Effective osculating-tower bound for hypersurfaces
+// ============================================================
+//
+// Input:  d
+// Output: N_iosc(d), the bound on n for a general degree d hypersurface
+//         obtained by the osculating-tower recursion.
+//
+// Examples:
+//   HypersurfaceBound(6);  // 133
+//   HypersurfaceBound(7);  // 2069
+//   HypersurfaceBound(8);  // 81800
+//   HypersurfaceBound(9);  // 719127963
+//
+// ============================================================
+
+function SortedSequence(S)
+    T := S;
+    Sort(~T);
+    return T;
+end function;
+
+function CeilDiv(a,b)
+    return (a + b - 1) div b;
+end function;
+
+function SymDim(b,j)
+    // dim Sym^j(k^b)=binomial(b+j-1,j).
+    if b eq 0 then
+        if j eq 0 then
+            return 1;
+        else
+            return 0;
+        end if;
+    end if;
+    return Binomial(b+j-1,j);
+end function;
+
+function IsAllQuadrics(degs)
+    return #degs gt 0 and &and[e eq 2 : e in degs];
+end function;
+
+function SValue(degs)
+    return (&+[e-1 : e in degs]) - 1;
+end function;
+
+function TransformT(degs)
+    // Distinguished equation is one equation of maximal degree.
+    degs := SortedSequence(degs);
+    c := #degs;
+    D := degs[c];
+
+    out := [];
+
+    // Non-distinguished equations contribute 2,...,d_i.
+    for i in [1..c-1] do
+        for e in [2..degs[i]] do
+            Append(~out, e);
+        end for;
+    end for;
+
+    // Distinguished equation contributes 2,...,D-2.
+    if D-2 ge 2 then
+        for e in [2..D-2] do
+            Append(~out, e);
+        end for;
+    end if;
+
+    Sort(~out);
+    return out;
+end function;
+
+function KInitialHypersurface(d, r, m)
+    // Initial count for a hypersurface of degree d.
+    // Here L is not already known to be contained in X, so j starts at 0.
+    b := m-r;
+    K := 0;
+
+    for j in [0..d-2] do
+        K +:= Binomial(r+d-j,r)*SymDim(b,j);
+    end for;
+
+    return K;
+end function;
+
+function KInternal(degs, r, m)
+    // Internal count for a residual complete intersection already containing P^r.
+    degs := SortedSequence(degs);
+    c := #degs;
+    D := degs[c];
+    b := m-r;
+
+    K := 0;
+
+    // Non-distinguished equations.
+    for i in [1..c-1] do
+        d := degs[i];
+        for j in [1..d] do
+            K +:= Binomial(r+d-j,r)*SymDim(b,j);
+        end for;
+    end for;
+
+    // Distinguished equation.
+    if D-2 ge 1 then
+        for j in [1..D-2] do
+            K +:= Binomial(r+D-j,r)*SymDim(b,j);
+        end for;
+    end if;
+
+    return K;
+end function;
+
+function InternalBound(degs, r)
+    // Bound for an internal residual complete intersection of multidegree degs
+    // already containing a P^r.
+
+    degs := SortedSequence(degs);
+
+    if IsAllQuadrics(degs) then
+        q := #degs;
+        if r lt q-1 then
+            error "Quadratic endpoint reached with too small a linear space.";
+        end if;
+        return r+1;
+    end if;
+
+    c := #degs;
+    Tdegs := TransformT(degs);
+
+    m := Maximum(r, SValue(Tdegs)+1);
+    b := m-r;
+
+    rec := InternalBound(Tdegs, m-1) + c + 1;
+
+    if b eq 0 then
+        return rec;
+    end if;
+
+    K := KInternal(degs, r, m);
+    I := m + CeilDiv(K,b);
+
+    return Maximum(I, rec);
+end function;
+
+function HypersurfaceBound(d)
+    if d lt 2 then
+        error "The degree must be at least 2.";
+    end if;
+
+    // Quadrics are rational for n >= 2.
+    if d eq 2 then
+        return 2;
+    end if;
+
+    // Initial data for a degree d hypersurface.
+    r0 := d-2;
+    Tdegs := TransformT([d]);
+    m0 := Maximum(r0, SValue(Tdegs)+1);
+
+    K0 := KInitialHypersurface(d, r0, m0);
+    H0 := m0 + CeilDiv(K0, m0+1);
+
+    rec := InternalBound(Tdegs, m0-1) + 2;
+
+    return Maximum(H0, rec);
+end function;
+
+procedure PrintHypersurfaceBound(d)
+    B := HypersurfaceBound(d);
+
+    print "----------------------------------------";
+    print "Degree d =", d;
+    print "Osculating-tower bound N_iosc(d) =", B;
+    print "Conclusion: a general degree", d, "hypersurface in P^n is unirational for n >=", B;
+    print "----------------------------------------";
+end procedure;
+
+// ============================================================
+// Examples
+// ============================================================
+
+PrintHypersurfaceBound(6);
+PrintHypersurfaceBound(7);
+PrintHypersurfaceBound(8);
+PrintHypersurfaceBound(9);
+
+
+
+
+
+
+
+// ============================================================
+// Comparison of unirationality bounds for degree d hypersurfaces
+// ============================================================
+//
+// Bounds computed:
+//   1. Ramero effective bound, following Cheng's ramero.py.
+//   2. Beheshti--Riedl bound 2^(d!).
+//   3. Cheng effective bound, following Cheng's dimensions.py.
+//   4. Cheng closed bound 2^((d-1)*2^(d-5)), for d >= 6.
+//   5. Our effective osculating-tower bound N_iosc(d).
+//   6. Our closed bound 2^((d-2)*2^(d-5)), for d >= 6.
+//
+// Main commands:
+//   CompareHypersurfaceBounds(6);
+//   CompareHypersurfaceBounds(7);
+//   CompareHypersurfaceBounds(8);
+//   CompareRange(6,9);
+//
+// ============================================================
+
+// ------------------------------------------------------------
+// General utilities
+// ------------------------------------------------------------
+
+function CeilDiv(a,b)
+    if b le 0 then
+        error "CeilDiv called with nonpositive denominator.";
+    end if;
+    return (a+b-1) div b;
+end function;
+
+function SortedSequence(S)
+    T := S;
+    Sort(~T);
+    return T;
+end function;
+
+function SeqTail(S)
+    if #S le 1 then
+        return [];
+    end if;
+    return [S[i] : i in [2..#S]];
+end function;
+
+function SumSeq(S)
+    if #S eq 0 then
+        return 0;
+    end if;
+    return &+S;
+end function;
+
+function Max2(a,b)
+    if a ge b then
+        return a;
+    else
+        return b;
+    end if;
+end function;
+
+function FloorLog2Int(A)
+    if A le 0 then
+        error "FloorLog2Int needs a positive integer.";
+    end if;
+    e := 0;
+    B := A;
+    while B ge 2 do
+        B := B div 2;
+        e +:= 1;
+    end while;
+    return e;
+end function;
+
+function DecimalDigits(A)
+    if A eq 0 then
+        return 1;
+    end if;
+    return #IntegerToString(A);
+end function;
+
+procedure PrintIntegerBound(label, B)
+    Threshold := 10^80;
+    if B lt Threshold then
+        print label, "=", B;
+    else
+        print label, "=", "integer with", DecimalDigits(B), "decimal digits";
+    end if;
+end procedure;
+
+procedure PrintRatio(label, A, B)
+    if B eq 0 then
+        print label, "undefined";
+        return;
+    end if;
+
+    if A lt B then
+        print label, "< 1";
+        return;
+    end if;
+
+    Q := A div B;
+    PrintIntegerBound(label, Q);
+end procedure;
+
+// ------------------------------------------------------------
+// Ramero bound, ported from Cheng's ramero.py
+// ------------------------------------------------------------
+
+forward RameroW, RameroR;
+
+function RameroE(ds, q)
+    ds := SortedSequence(ds);
+    N := SumSeq([Binomial(d+q,q) : d in ds]);
+    return q + CeilDiv(N, q+1);
+end function;
+
+function RameroW(ds)
+    ds := SortedSequence(ds);
+
+    if #ds eq 0 then
+        return 0;
+    elif ds[1] eq 1 then
+        return RameroW(SeqTail(ds));
+    elif #ds eq 1 and ds[1] eq 2 then
+        return 0;
+    else
+        dsprime := [d-1 : d in ds];
+        return Max2(RameroR(dsprime)-1, RameroE(dsprime, RameroW(dsprime)));
+    end if;
+end function;
+
+function RameroR(ds)
+    ds := SortedSequence(ds);
+
+    if #ds eq 0 then
+        return 0;
+    elif ds[1] eq 1 then
+        return RameroR(SeqTail(ds)) + 1;
+    elif #ds eq 1 and ds[1] eq 2 then
+        return 2;
+    else
+        w := RameroW(ds);
+        return 1 + SumSeq([Binomial(d-1+w,d-1)-1 : d in ds]);
+    end if;
+end function;
+
+function RameroHypersurfaceBound(d)
+    ds := [d];
+    return Max2(RameroE(ds, RameroW(ds)), RameroR(ds));
+end function;
+
+// ------------------------------------------------------------
+// Beheshti--Riedl bound
+// ------------------------------------------------------------
+
+function BRExponent(d)
+    return Factorial(d);
+end function;
+
+procedure PrintBRBound(d)
+    print "Beheshti--Riedl bound = 2^", Factorial(d);
+end procedure;
+
+// ------------------------------------------------------------
+// Cheng effective bound, ported from dimensions.py
+// We use mu[i] = number of equations of degree i.
+// ------------------------------------------------------------
+
+function ChengTrim(mu)
+    nu := mu;
+    while #nu gt 0 and nu[#nu] eq 0 do
+        Remove(~nu,#nu);
+    end while;
+    return nu;
+end function;
+
+function ChengDegreeToMu(d)
+    mu := [0 : i in [1..d]];
+    mu[d] := 1;
+    return mu;
+end function;
+
+function ChengIsLinear(mu)
+    mu := ChengTrim(mu);
+    for i in [2..#mu] do
+        if mu[i] gt 0 then
+            return false;
+        end if;
+    end for;
+    return true;
+end function;
+
+function ChengIsQuadric(mu)
+    mu := ChengTrim(mu);
+
+    if #mu lt 2 then
+        return false;
+    end if;
+
+    if mu[2] ne 1 then
+        return false;
+    end if;
+
+    for i in [1..#mu] do
+        if i ne 2 and mu[i] ne 0 then
+            return false;
+        end if;
+    end for;
+
+    return true;
+end function;
+
+function ChengPenta(mu)
+    mu := ChengTrim(mu);
+
+    if ChengIsLinear(mu) then
+        return [];
+    end if;
+
+    ell := #mu;
+    mup := [];
+
+    for i in [1..ell] do
+        Append(~mup, SumSeq([mu[j] : j in [i..ell]]));
+    end for;
+
+    mup[ell] -:= 1;
+
+    if ell gt 1 then
+        mup[ell-1] -:= 1;
+    end if;
+
+    return ChengTrim(mup);
+end function;
+
+function ChengPointedLines(mu)
+    mu := ChengTrim(mu);
+    ell := #mu;
+    if ell eq 0 then
+        return [];
+    end if;
+
+    return [SumSeq([mu[j] : j in [i..ell]]) : i in [1..ell]];
+end function;
+
+function ChengR0(mu)
+    mu := ChengTrim(mu);
+    if #mu eq 0 then
+        return -1;
+    end if;
+
+    return SumSeq([(i-1)*mu[i] : i in [1..#mu]]) - 1;
+end function;
+
+function ChengR(mu)
+    mu := ChengTrim(mu);
+
+    if #mu eq 0 then
+        return -2;
+    end if;
+
+    rmax := ChengR0(mu);
+    muprime := mu;
+    depth := 0;
+
+    while not ChengIsLinear(muprime) do
+        muprime := ChengPenta(muprime);
+        depth +:= 1;
+        rmax := Max2(rmax, ChengR0(muprime) + depth);
+    end while;
+
+    return rmax;
+end function;
+
+function ChengN0(mu, r)
+    mu := ChengTrim(mu);
+
+    if r lt -1 then
+        return 0;
+    elif r eq -1 then
+        return SumSeq(mu) - 1;
+    elif r eq 0 then
+        return SumSeq(ChengPointedLines(mu));
+    elif ChengIsQuadric(mu) then
+        return 2*r + SumSeq(mu) + 1;
+    else
+        S := SumSeq([mu[i]*Binomial(i+r,r) : i in [1..#mu]]);
+        return r + CeilDiv(S-1, r);
+    end if;
+end function;
+
+function ChengN(mu, r)
+    mu := ChengTrim(mu);
+
+    nmax := ChengN0(mu,r);
+    muprime := mu;
+
+    while not ChengIsLinear(muprime) do
+        muprime := ChengPenta(muprime);
+        nmax := Max2(nmax, ChengN0(muprime,r-1) + 1);
+    end while;
+
+    return nmax;
+end function;
+
+function ChengEffectiveHypersurfaceBound(d)
+    mu := ChengDegreeToMu(d);
+    return ChengN(mu, ChengR(mu));
+end function;
+
+function ChengClosedExponent(d)
+    if d lt 6 then
+        error "Cheng closed exponent is used here only for d >= 6.";
+    end if;
+    return (d-1)*2^(d-5);
+end function;
+
+// ------------------------------------------------------------
+// Our osculating-tower effective bound
+// ------------------------------------------------------------
+
+function SymDim(b,j)
+    if b eq 0 then
+        if j eq 0 then
+            return 1;
+        else
+            return 0;
+        end if;
+    end if;
+    return Binomial(b+j-1,j);
+end function;
+
+function OurIsAllQuadrics(degs)
+    return #degs gt 0 and &and[e eq 2 : e in degs];
+end function;
+
+function OurSValue(degs)
+    return SumSeq([e-1 : e in degs]) - 1;
+end function;
+
+function OurTransformT(degs)
+    degs := SortedSequence(degs);
+
+    if #degs eq 0 then
+        return [];
+    end if;
+
+    c := #degs;
+    D := degs[c];
+
+    out := [];
+
+    for i in [1..c-1] do
+        for e in [2..degs[i]] do
+            Append(~out, e);
+        end for;
+    end for;
+
+    if D-2 ge 2 then
+        for e in [2..D-2] do
+            Append(~out, e);
+        end for;
+    end if;
+
+    Sort(~out);
+    return out;
+end function;
+
+function OurKInitialHypersurface(d, r, m)
+    b := m-r;
+    K := 0;
+
+    for j in [0..d-2] do
+        K +:= Binomial(r+d-j,r)*SymDim(b,j);
+    end for;
+
+    return K;
+end function;
+
+function OurKInternal(degs, r, m)
+    degs := SortedSequence(degs);
+    c := #degs;
+    D := degs[c];
+    b := m-r;
+
+    K := 0;
+
+    for i in [1..c-1] do
+        d := degs[i];
+        for j in [1..d] do
+            K +:= Binomial(r+d-j,r)*SymDim(b,j);
+        end for;
+    end for;
+
+    if D-2 ge 1 then
+        for j in [1..D-2] do
+            K +:= Binomial(r+D-j,r)*SymDim(b,j);
+        end for;
+    end if;
+
+    return K;
+end function;
+
+function OurInternalBound(degs, r)
+    degs := SortedSequence(degs);
+
+    if OurIsAllQuadrics(degs) then
+        q := #degs;
+        if r lt q-1 then
+            error "Quadratic endpoint reached with too small a linear space.";
+        end if;
+        return r+1;
+    end if;
+
+    c := #degs;
+    Tdegs := OurTransformT(degs);
+
+    m := Max2(r, OurSValue(Tdegs)+1);
+    b := m-r;
+
+    rec := OurInternalBound(Tdegs, m-1) + c + 1;
+
+    if b eq 0 then
+        return rec;
+    end if;
+
+    K := OurKInternal(degs, r, m);
+    I := m + CeilDiv(K,b);
+
+    return Max2(I, rec);
+end function;
+
+function OurHypersurfaceBound(d)
+    if d lt 2 then
+        error "The degree must be at least 2.";
+    end if;
+
+    if d eq 2 then
+        return 2;
+    end if;
+
+    r0 := d-2;
+    Tdegs := OurTransformT([d]);
+    m0 := Max2(r0, OurSValue(Tdegs)+1);
+
+    K0 := OurKInitialHypersurface(d, r0, m0);
+    H0 := m0 + CeilDiv(K0, m0+1);
+
+    rec := OurInternalBound(Tdegs, m0-1) + 2;
+
+    return Max2(H0, rec);
+end function;
+
+function OurClosedExponent(d)
+    if d lt 6 then
+        error "Our closed exponent is used here only for d >= 6.";
+    end if;
+    return (d-2)*2^(d-5);
+end function;
+
+// ------------------------------------------------------------
+// Comparison routines
+// ------------------------------------------------------------
+
+procedure CompareHypersurfaceBounds(d)
+    if d lt 2 then
+        error "Degree must be at least 2.";
+    end if;
+
+    print "============================================================";
+    print "Degree d =", d;
+    print "============================================================";
+
+    Ram := RameroHypersurfaceBound(d);
+    Che := ChengEffectiveHypersurfaceBound(d);
+    Our := OurHypersurfaceBound(d);
+
+    PrintIntegerBound("Ramero effective", Ram);
+    PrintBRBound(d);
+    PrintIntegerBound("Cheng effective", Che);
+
+    if d ge 6 then
+        print "Cheng closed = 2^", ChengClosedExponent(d);
+    else
+        print "Cheng closed = not used for d < 6";
+    end if;
+
+    PrintIntegerBound("Our effective", Our);
+
+    if d ge 6 then
+        print "Our closed = 2^", OurClosedExponent(d);
+    else
+        print "Our closed = not used for d < 6";
+    end if;
+
+    print "------------------------------------------------------------";
+    print "Comparisons against our effective bound";
+    print "------------------------------------------------------------";
+
+    if Ram ge Our then
+        PrintRatio("Ramero / ours", Ram, Our);
+    else
+        PrintRatio("Ours / Ramero", Our, Ram);
+    end if;
+
+    if Che ge Our then
+        PrintRatio("Cheng effective / ours", Che, Our);
+    else
+        PrintRatio("Ours / Cheng effective", Our, Che);
+    end if;
+
+    if d ge 6 then
+        print "Closed Cheng / closed ours = 2^", 2^(d-5);
+    end if;
+
+    // BR comparison is symbolic to avoid constructing 2^(d!).
+    ourlog := FloorLog2Int(Our);
+    brexp := Factorial(d);
+
+    print "log2(our effective) is between", ourlog, "and", ourlog+1;
+    print "log2(Beheshti--Riedl) =", brexp;
+
+    if brexp gt ourlog then
+        print "Beheshti--Riedl is larger than our effective bound.";
+        print "Symbolic improvement factor at least 2^", brexp-(ourlog+1);
+    else
+        print "Our effective is not smaller than the BR symbolic bound at this degree.";
+    end if;
+
+    print "============================================================";
+end procedure;
+
+procedure CompareRange(dmin, dmax)
+    print "d | Ramero | BR | Cheng eff | Cheng closed | Our eff | Our closed";
+    print "----------------------------------------------------------------";
+
+    for d in [dmin..dmax] do
+        Ram := RameroHypersurfaceBound(d);
+        Che := ChengEffectiveHypersurfaceBound(d);
+        Our := OurHypersurfaceBound(d);
+
+        print "d =", d;
+
+        PrintIntegerBound("  Ramero effective", Ram);
+        print "  BR = 2^", Factorial(d);
+        PrintIntegerBound("  Cheng effective", Che);
+
+        if d ge 6 then
+            print "  Cheng closed = 2^", ChengClosedExponent(d);
+        else
+            print "  Cheng closed = n/a";
+        end if;
+
+        PrintIntegerBound("  Our effective", Our);
+
+        if d ge 6 then
+            print "  Our closed = 2^", OurClosedExponent(d);
+            print "  Closed Cheng / closed ours = 2^", 2^(d-5);
+        else
+            print "  Our closed = n/a";
+        end if;
+
+        if Che ge Our then
+            PrintRatio("  Cheng eff / ours", Che, Our);
+        else
+            PrintRatio("  Ours / Cheng eff", Our, Che);
+        end if;
+
+        print "----------------------------------------------------------------";
+    end for;
+end procedure;
+
+// ------------------------------------------------------------
+// Examples
+// ------------------------------------------------------------
+
+CompareHypersurfaceBounds(6);
+CompareHypersurfaceBounds(7);
+CompareHypersurfaceBounds(8);
+
+// CompareHypersurfaceBounds(9);
+// CompareRange(6,9);
